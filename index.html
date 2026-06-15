@@ -469,23 +469,27 @@ const progressFill = document.getElementById('progressFill'), progressPercent = 
 const questionText = document.getElementById('questionText'), answersGrid = document.getElementById('answersGrid'), nextBtn = document.getElementById('nextBtn');
 
 function saveProgress() {
-  if(testFinished) return;
-  const progress = {
-    currentQuestion,
-    score,
-    timeLeft,
-    timestamp: Date.now()
-  };
-  localStorage.setItem('grammarTestProgress', JSON.stringify(progress));
+  if(testFinished || currentQuestion >= TOTAL_QUESTIONS) return;
+  try {
+    const progress = {
+      currentQuestion,
+      score,
+      timeLeft,
+      timestamp: Date.now()
+    };
+    localStorage.setItem('grammarTestProgress', JSON.stringify(progress));
+  } catch(e) {
+    console.warn('Failed to save progress:', e);
+  }
 }
 
 function loadProgress() {
-  const saved = localStorage.getItem('grammarTestProgress');
-  if(saved) {
-    try {
+  try {
+    const saved = localStorage.getItem('grammarTestProgress');
+    if(saved) {
       const progress = JSON.parse(saved);
       if(progress.timestamp && (Date.now() - progress.timestamp) < 24 * 60 * 60 * 1000) {
-        if(progress.currentQuestion < TOTAL_QUESTIONS && progress.currentQuestion > 0) {
+        if(progress.currentQuestion < TOTAL_QUESTIONS && progress.currentQuestion > 0 && progress.currentQuestion !== undefined) {
           if(confirm('Do you want to continue from where you left off?')) {
             currentQuestion = progress.currentQuestion;
             score = progress.score;
@@ -495,16 +499,23 @@ function loadProgress() {
           }
         }
       }
-    } catch(e) {}
+    }
+  } catch(e) {
+    console.warn('Failed to load progress:', e);
   }
   return false;
 }
 
 function clearProgress() {
-  localStorage.removeItem('grammarTestProgress');
+  try {
+    localStorage.removeItem('grammarTestProgress');
+  } catch(e) {
+    console.warn('Failed to clear progress:', e);
+  }
 }
 
 function updateStats() {
+  if(testFinished) return;
   qCounter.innerText = `${currentQuestion+1}/${TOTAL_QUESTIONS}`;
   scoreSpan.innerText = score;
   let p = ((currentQuestion+1)/TOTAL_QUESTIONS)*100;
@@ -559,7 +570,7 @@ function showQuestion() {
 }
 
 function selectAnswer(idx, btn) {
-  if(isAnswerChecked || testFinished) return;
+  if(isAnswerChecked || testFinished || isNavigating) return;
   document.querySelectorAll('.answer-btn').forEach(b=>b.classList.remove('selected'));
   btn.classList.add('selected');
   selectedAnswer = idx;
@@ -637,12 +648,13 @@ function shareToVK() {
 
 function shareToMaxRu() {
   let text = getShareText();
-  // Передаём результат через GET-параметр result=
-  window.open(`https://max.ru/?result=${encodeURIComponent(text)}`, '_blank');
+  let url = window.location.href;
+  // Исправленный URL с правильным кодированием
+  window.open(`https://max.ru/share?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
 }
 
 function restartTest() {
-  clearInterval(timerInterval);
+  if(timerInterval) clearInterval(timerInterval);
   clearProgress();
   currentQuestion = 0;
   score = 0;
@@ -653,6 +665,21 @@ function restartTest() {
   testFinished = false;
   scoreSpan.innerText = score;
   updateTimer();
+  
+  // Восстанавливаем интерфейс
+  const contentDiv = document.getElementById('content');
+  contentDiv.innerHTML = `
+    <div class="question-card"><div class="question-text" id="questionText">Loading question...</div></div>
+    <div class="answers-grid" id="answersGrid"><div class="loading"></div></div>
+    <button class="next-btn" id="nextBtn">Next Question →</button>
+  `;
+  
+  // Переназначаем переменные после восстановления DOM
+  window.questionText = document.getElementById('questionText');
+  window.answersGrid = document.getElementById('answersGrid');
+  window.nextBtn = document.getElementById('nextBtn');
+  window.nextBtn.onclick = handleNextButton;
+  
   showQuestion();
   startTimer();
 }
@@ -660,14 +687,14 @@ function restartTest() {
 function finishTest() {
   if(testFinished) return;
   testFinished = true;
-  clearInterval(timerInterval);
+  if(timerInterval) clearInterval(timerInterval);
   clearProgress();
   
-  if(score > TOTAL_QUESTIONS) score = TOTAL_QUESTIONS;
   let percent = (score / TOTAL_QUESTIONS) * 100;
   let {level, badge, msg} = getLevel(percent);
   
-  document.getElementById('content').innerHTML = `
+  const contentDiv = document.getElementById('content');
+  contentDiv.innerHTML = `
     <div class="result-container">
       <div class="result-icon"><svg width="100" height="100" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="#6c63ff" opacity="0.1"/><path d="M30,50 L45,65 L70,35" fill="none" stroke="#6c63ff" stroke-width="8"/></svg></div>
       <h2>Test Completed!</h2>
@@ -688,6 +715,7 @@ function finishTest() {
   `;
 }
 
+// Привязываем обработчик
 nextBtn.onclick = handleNextButton;
 
 window.onload = ()=>{ 
@@ -705,7 +733,7 @@ window.onload = ()=>{
 };
 
 window.onbeforeunload = function() {
-  if(!testFinished && currentQuestion < TOTAL_QUESTIONS && currentQuestion > 0) {
+  if(!testFinished && currentQuestion < TOTAL_QUESTIONS && currentQuestion > 0 && selectedAnswer !== null) {
     saveProgress();
   }
 };
